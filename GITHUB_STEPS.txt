@@ -1,0 +1,48 @@
+RUN THIS CI/CD DEMO ON GITHUB  (about 10 minutes)
+=================================================
+
+WHAT CHANGED IN THIS COPY
+  1. .gitignore  : tells Git not to upload the target/ folder (Maven rebuilds it).
+  2. pom.xml     : added maven-jar-plugin with mainClass demo.OrderCalculator, so the
+                   JAR can be started with  java -jar target\java-ci-cd-demo-1.0.0.jar
+                   (the original JAR had no Main-Class). Not run by me: Maven could not
+                   download plugins in my workspace. If the build complains about this
+                   plugin, delete the <plugin> block for maven-jar-plugin and tell me.
+  Everything else is your friend's original work.
+
+WHAT YOU NEED
+  - A GitHub account (free).  - Git installed: open a terminal and type  git --version
+
+STEPS
+  1. On github.com click  +  ->  New repository. Name it  java-ci-cd-demo.
+     Leave "Add a README" UNTICKED. Click Create repository.
+  2. Open a terminal INSIDE this folder (the one that contains the .github folder and pom.xml).
+     The .github folder must be at the TOP of the repository, otherwise nothing runs.
+  3. Type these lines one by one (replace YOUR-NAME):
+        git init
+        git add .
+        git commit -m "CI/CD demo"
+        git branch -M main
+        git remote add origin https://github.com/YOUR-NAME/java-ci-cd-demo.git
+        git push -u origin main
+     A browser window may ask you to sign in to GitHub. That is normal.
+  4. On the repository page click the  Actions  tab. A run called "Java CI/CD Demo" starts
+     by itself within a few seconds. Yellow = running, green check = passed, red X = failed.
+  5. Click the run, then the job. You see each step: check out, set up Java, build and test,
+     upload. At the bottom of the run page, under "Artifacts", download
+     java-ci-cd-demo-results (the JAR + the test report).
+
+IF THE RUN FAILS BEFORE THE BUILD (red at "Check out" or "Upload")
+  The workflow uses actions/checkout@v6 and actions/upload-artifact@v7. They seem to exist, but
+  if GitHub says "unable to resolve action", edit .github/workflows/ci-cd.yml, change those
+  two to @v4, then git add . / git commit -m "fix versions" / git push.
+
+SHOW A FAILURE (best part of the demo)
+  1. In src/test/java/demo/OrderCalculatorTest.java change "102.00" to "100.00".
+  2. git add . ; git commit -m "break a test" ; git push
+  3. Actions tab: the new run goes RED at "Compile, test, and package". The upload step still
+     runs (if: always()) so you can download the test report and read why. No JAR is made.
+  4. Change it back to "102.00", commit, push: green again.
+
+WHAT TO WRITE IN THE REPORT AFTER THE RUN
+  Status (green/red), how long it took, the artifact name, and a screenshot of the Actions page.

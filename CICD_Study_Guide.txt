@@ -1,0 +1,441 @@
+SWT301 CI/CD & REPORTING DEMO - STUDY GUIDE
+===========================================
+
+Purpose
+-------
+Explain your friend's Java CI/CD demo from zero, tell you what to fix before
+presenting, and give you the C# equivalent (your lecturer wants Java AND C#).
+
+READ THIS FIRST - 3 THINGS TO FIX BEFORE YOU PRESENT
+----------------------------------------------------
+1. THE JAR CANNOT BE RUN (most important).
+   I opened java-ci-cd-demo-1.0.0.jar. Its MANIFEST.MF has no "Main-Class" line.
+   So "java -jar java-ci-cd-demo-1.0.0.jar" fails with:
+       no main manifest attribute, in java-ci-cd-demo-1.0.0.jar
+   The README tells you to "download the JAR artifact" at the end of the demo, so
+   the lecturer may ask "ok, run it". Fix: add this plugin inside <plugins> in
+   pom.xml:
+
+       <plugin>
+           <groupId>org.apache.maven.plugins</groupId>
+           <artifactId>maven-jar-plugin</artifactId>
+           <version>3.4.2</version>
+           <configuration>
+               <archive>
+                   <manifest>
+                       <mainClass>demo.OrderCalculator</mainClass>
+                   </manifest>
+               </archive>
+           </configuration>
+       </plugin>
+
+   Then run:  mvn clean verify   and   java -jar target\java-ci-cd-demo-1.0.0.jar
+   (the menu should appear). Without the fix, the workaround is:
+       java -cp target\java-ci-cd-demo-1.0.0.jar demo.OrderCalculator
+
+2. THE GITHUB PART MUST BE DEMONSTRATED FOR REAL.
+   The VS Code task only runs Maven on your laptop. That is NOT CI/CD by itself.
+   The real topic is the GitHub Actions run. Before the demo:
+     - Create a GitHub repo and push the project so that pom.xml and the
+       .github/workflows/ folder are at the ROOT of the repo (not in a subfolder).
+     - Open the Actions tab and check there is a green run with an artifact.
+     - Keep that page open as your backup in case the internet is slow.
+   Also run it once with a deliberately failing test so you can show a RED run.
+
+3. ACTION VERSIONS - CHECK ON FIRST PUSH.
+   The workflow uses actions/checkout@v6, actions/setup-java@v4 and
+   actions/upload-artifact@v7. I could not verify from here that v6 and v7
+   exist. If the first run fails at "Set up job" with "Unable to resolve action",
+   change checkout and upload-artifact to @v4 (those definitely exist) and push
+   again.
+
+Smaller things:
+   - run-demo.ps1 is mentioned in the README but was not in the files you sent.
+     Make sure it exists in the folder or the VS Code task will not work.
+   - settings.json is unrelated (it is about COBOL files). Delete it.
+   - The slide says "Allure Report, Jenkins, Testomat". This demo only has the
+     Surefire report. That is OK: say "Surefire is the built-in Maven report;
+     Allure is a nicer report on top of the same results" (see section 9).
+   - The lecturer dropped Unit Testing as a topic. That is fine: here the JUnit
+     tests are only the "quality gate" inside the pipeline. Do not present them as
+     a unit testing topic. Say: "CI needs automated tests to decide pass or fail;
+     I used JUnit tests because they are the fastest to run."
+
+
+1. WHAT IS CI/CD? (THE CONCEPT)
+-------------------------------
+Without CI/CD:  a developer changes code -> builds on own laptop -> "works on my
+machine" -> sends files by hand -> nobody knows if it still works for others.
+
+With CI/CD, a robot does the same steps the same way every time, on a clean
+machine, after every change.
+
+CI = Continuous Integration
+   Every time code is pushed, automatically:  compile -> run tests.
+   If anything fails, the pipeline turns red and stops. Bugs are found within
+   minutes of being introduced, not weeks later.
+
+CD = Continuous Delivery (or Deployment - two meanings, know both)
+   Continuous DELIVERY:   after tests pass, the app is packaged and READY to
+                          release (a human still clicks "release").
+   Continuous DEPLOYMENT: after tests pass, it is released to users
+                          automatically, no human click.
+   THIS DEMO = Continuous Delivery only. It builds a JAR and stores it. It does
+   NOT deploy to any server. Say this honestly; it is a strength, not a weakness.
+
+Pipeline = the ordered list of automatic steps (build -> test -> package ...).
+Quality gate = a check that must pass before moving on (here: tests pass before
+the JAR is created).
+Artifact = a file produced by the pipeline that you can download (the JAR, the
+test report).
+
+
+2. THE PIPELINE IN THIS DEMO
+----------------------------
+  git push / pull request
+        |
+  GitHub starts a fresh Linux machine (the "runner")
+        |
+  Check out the code  ->  install Java 17  ->  restore Maven cache
+        |
+  mvn clean verify  =  clean -> compile -> test -> package
+        |
+  tests fail?  -> STOP, red X, no JAR (report still uploaded)
+  tests pass?  -> JAR is built
+        |
+  Upload JAR + test report as downloadable "artifact" (kept 7 days)
+
+
+3. THE JAVA PROGRAM (OrderCalculator.java)
+------------------------------------------
+Business rule: final price = subtotal - (subtotal x discount / 100).
+
+totalAfterDiscount(subtotal, discountPercent):
+  - null input                    -> IllegalArgumentException
+  - negative subtotal             -> IllegalArgumentException
+  - discount < 0 or > 100         -> IllegalArgumentException
+  - otherwise computes the total and rounds to 2 decimals (HALF_UP)
+
+Why BigDecimal and not double?
+  double stores numbers in binary, so 0.1 + 0.2 = 0.30000000000000004.
+  Money must be exact, so Java uses BigDecimal (C# uses decimal).
+
+Example: 120.00 with 15% -> discount 18.00 -> total 102.00.
+main() is only a menu for the presentation (1 = own order, 2 = guided examples,
+0 = exit). CI never uses the menu.
+
+The 7 JUnit tests (OrderCalculatorTest.java):
+  1 appliesPercentageDiscount          120.00, 15%  -> 102.00
+  2 zeroDiscountKeepsSubtotal          19.99, 0%    -> 19.99
+  3 fullDiscountProducesZero           19.99, 100%  -> 0.00
+  4 rejectsDiscountAboveOneHundred     101%         -> exception
+  5 rejectsNegativeSubtotal            -1           -> exception
+  6 roundsFinalAmountToTwoDecimals     10.05, 10%   -> 9.05
+  7 rejectsMissingSubtotal             null         -> exception
+assertEquals = expected value equals actual value.
+assertThrows = the code MUST throw that exception, otherwise the test fails.
+
+
+4. pom.xml EXPLAINED
+--------------------
+pom = Project Object Model, the Maven configuration file.
+  groupId / artifactId / version  -> the name of the project. These make the JAR
+                                     name: java-ci-cd-demo-1.0.0.jar
+  maven.compiler.release = 17     -> compile for Java 17
+  junit-jupiter (scope test)      -> JUnit 5, only used for tests, not shipped
+  maven-compiler-plugin           -> compiles .java to .class
+  maven-surefire-plugin           -> runs the tests and writes the reports
+                                     in target/surefire-reports/
+
+
+5. MAVEN LIFECYCLE: mvn clean verify
+------------------------------------
+  clean     delete the old target/ folder (fresh start)
+  compile   .java -> .class
+  test      run JUnit tests. ONE failing test = BUILD FAILURE, stop here
+  package   create the JAR in target/
+  verify    last check phase (runs after package)
+Phases run in order, and running a later phase runs all the earlier ones.
+That order is exactly why "the JAR is only built if tests pass".
+Flags: --batch-mode (no colors/prompts, good for robots),
+       --no-transfer-progress (hides noisy download bars in the logs).
+
+
+6. THE WORKFLOW FILE, LINE BY LINE (.github/workflows/ci-cd.yml)
+----------------------------------------------------------------
+name: Java CI/CD Demo
+    Name shown in the Actions tab.
+
+on: push / pull_request / workflow_dispatch
+    TRIGGERS. Run on every push, on every pull request, and manually via the
+    "Run workflow" button.
+
+permissions: contents: read
+    The robot may only READ the repo. Least privilege = good security habit.
+
+jobs: build-test-deliver:  runs-on: ubuntu-latest
+    One job, on a fresh GitHub-hosted Ubuntu machine. It is thrown away after.
+
+steps:
+  1. actions/checkout        copies your repo onto the runner
+  2. actions/setup-java      installs Java 17 (Temurin = a free OpenJDK build),
+                             cache: maven re-uses downloaded dependencies so the
+                             next run is faster
+  3. run: mvn ... clean verify    the actual build + test + package
+  4. actions/upload-artifact      saves the report and JAR
+        if: always()   -> upload EVEN IF the tests failed, so you can read why
+        retention-days: 7  -> deleted after a week
+        if-no-files-found: warn -> do not crash if nothing exists
+
+"uses:" = use a ready-made step written by someone else.
+"run:"  = run a shell command yourself.
+
+
+7. HOW TO RUN THE DEMO (5-6 MINUTES)
+------------------------------------
+Prepare in advance: repo pushed, a green run in the Actions tab, Java 17+ and
+Maven installed, JAR fix applied.
+
+0:00  Say: "My topic is CI/CD. CI builds and tests every change automatically.
+      CD packages the passing result so it can be delivered. I used GitHub
+      Actions with a Java and Maven project."
+0:30  Show the code briefly: OrderCalculator + the 7 tests (do not explain
+      every line, the topic is the pipeline).
+1:00  Run the VS Code task (Ctrl+Shift+B). Point at:
+        - "Tests run: 7, Failures: 0, Errors: 0"
+        - BUILD SUCCESS
+        - the JAR created in target/
+      Choose 2 for the guided examples or 1 with "49.99 20" -> $39.99.
+2:30  Open ci-cd.yml. Explain: trigger -> runner -> setup Java -> mvn clean
+      verify -> upload artifact.
+3:30  Open GitHub > Actions. Show the green run, the steps, and download the
+      artifact (JAR + surefire report). Run the JAR with java -jar.
+4:30  FAILURE DEMO (the best part): change "102.00" to "100.00" in the first
+      test, commit, push. Show the RED run. Show that no JAR was packaged but the
+      report is available. Revert, push, show GREEN again.
+5:30  Conclude: "Every change is checked the same way by a clean machine, so
+      broken code is caught early and a tested package is always ready."
+
+Tip: do the failure demo by pushing, not only locally. Seeing the pipeline turn
+red on GitHub is the point of CI.
+Tip: if the internet fails, show your earlier green and red runs in the tab.
+
+
+8. LIKELY LECTURER QUESTIONS
+----------------------------
+Q1. What is CI/CD?
+A. CI automatically builds and tests every code change. CD automatically
+   packages (delivery) or releases (deployment) the code that passed.
+
+Q2. What is the difference between Continuous Delivery and Continuous Deployment?
+A. Delivery: always ready to release, a human approves. Deployment: released to
+   users automatically. My demo is delivery: it produces a JAR, no server.
+
+Q3. Why use CI/CD?
+A. Find bugs early, same repeatable build for everyone, no "works on my
+   machine", less manual work, faster safe releases.
+
+Q4. What triggers your pipeline?
+A. A push, a pull request, or the manual "Run workflow" button (the "on:" block).
+
+Q5. What is a runner?
+A. The temporary machine GitHub starts to run the job (ubuntu-latest).
+
+Q6. What is an artifact?
+A. A file produced by the pipeline that can be downloaded: the JAR and the
+   test report.
+
+Q7. Why does the JAR only appear when tests pass?
+A. Maven phases run in order: test comes before package. A failing test stops the
+   build before package.
+
+Q8. Why upload the report with "if: always()"?
+A. So that when tests fail, you can still download the report and see why.
+
+Q9. What is Maven / pom.xml?
+A. Maven builds Java projects and manages dependencies; pom.xml is its config.
+
+Q10. What is the difference between mvn test and mvn verify?
+A. test stops after running tests. verify goes further: compile, test, package
+   and the checks after it.
+
+Q11. Why cache Maven dependencies?
+A. To skip re-downloading libraries every run, so the pipeline is faster.
+
+Q12. Why BigDecimal for money?
+A. double has binary rounding errors; BigDecimal is exact.
+
+Q13. Is this a real deployment?
+A. No. It delivers a downloadable JAR. A real deployment step would copy it to a
+   server or cloud service and would need credentials stored as GitHub Secrets.
+
+Q14. What would you add next?
+A. Code coverage, Allure report, API tests from my other topic, a deployment
+   step, branch protection (cannot merge unless the pipeline is green).
+
+Q15. GitHub Actions vs Jenkins?
+A. Actions is hosted by GitHub and configured with YAML in the repo, almost no
+   setup. Jenkins is self-hosted: you install and maintain the server, but it is
+   very flexible and works with any Git host.
+
+Q16. What are these tests - unit tests?
+A. Yes, they test one class in isolation. In this topic they are used as the
+   quality gate of the pipeline. CI can run any kind of tests (API, UI...).
+
+Q17. What does "clean" do and why?
+A. Deletes old build output so old files cannot hide problems.
+
+
+9. THE TOOLS ON YOUR SLIDE (ONE LINE EACH)
+------------------------------------------
+GitHub Actions  CI/CD built into GitHub, YAML workflows. (YOUR DEMO)
+Jenkins         Self-hosted CI server, huge plugin ecosystem, older but common.
+Allure Report   Turns raw test results into a clickable HTML dashboard with
+                steps, history and charts. Works with JUnit, xUnit, etc.
+Testomat        Test management platform: stores test cases and results,
+                connects to CI. (Mention only, no demo.)
+Surefire report What you actually have: XML/TXT results in
+                target/surefire-reports/. This is the "reporting" in your demo.
+
+Optional upgrade (10 minutes) if you want Allure in the demo: generate
+allure-results with the Allure JUnit 5 adapter and publish the HTML report as
+another artifact. Only do this if the base demo works first.
+
+
+10. THE SAME DEMO IN C#
+-----------------------
+Concept mapping (Java -> C#):
+  Java 17             -> .NET 8 SDK
+  Maven (pom.xml)     -> dotnet CLI (.csproj)
+  JUnit 5 (@Test)     -> xUnit ([Fact])
+  BigDecimal          -> decimal
+  JAR                 -> published folder / DLL (dotnet publish)
+  mvn clean verify    -> dotnet restore, build, test, publish
+  surefire-reports    -> .trx test result file
+  actions/setup-java  -> actions/setup-dotnet
+
+Create the project (run in a terminal):
+  dotnet new sln -n CiCdDemo
+  dotnet new console -n OrderApp
+  dotnet new xunit -n OrderApp.Tests
+  dotnet sln add OrderApp OrderApp.Tests
+  dotnet add OrderApp.Tests reference OrderApp
+
+OrderApp/OrderCalculator.cs
+  namespace OrderApp;
+
+  public class OrderCalculator
+  {
+      public decimal TotalAfterDiscount(decimal? subtotal, decimal? discountPercent)
+      {
+          if (subtotal is null || discountPercent is null)
+              throw new ArgumentException("Subtotal and discount are required");
+          if (subtotal < 0)
+              throw new ArgumentException("Subtotal cannot be negative");
+          if (discountPercent < 0 || discountPercent > 100)
+              throw new ArgumentException("Discount must be between 0 and 100 percent");
+
+          decimal discount = subtotal.Value * discountPercent.Value / 100m;
+          return Math.Round(subtotal.Value - discount, 2, MidpointRounding.AwayFromZero);
+      }
+  }
+
+OrderApp/Program.cs
+  using OrderApp;
+  var calc = new OrderCalculator();
+  Console.WriteLine(calc.TotalAfterDiscount(120.00m, 15m));   // 102.00
+
+OrderApp.Tests/OrderCalculatorTests.cs
+  using OrderApp;
+  using Xunit;
+
+  public class OrderCalculatorTests
+  {
+      private readonly OrderCalculator calc = new();
+
+      [Fact]
+      public void AppliesPercentageDiscount() =>
+          Assert.Equal(102.00m, calc.TotalAfterDiscount(120.00m, 15m));
+
+      [Fact]
+      public void ZeroDiscountKeepsSubtotal() =>
+          Assert.Equal(19.99m, calc.TotalAfterDiscount(19.99m, 0m));
+
+      [Fact]
+      public void FullDiscountProducesZero() =>
+          Assert.Equal(0.00m, calc.TotalAfterDiscount(19.99m, 100m));
+
+      [Fact]
+      public void RejectsDiscountAboveHundred() =>
+          Assert.Throws<ArgumentException>(() => calc.TotalAfterDiscount(20m, 101m));
+
+      [Fact]
+      public void RejectsNegativeSubtotal() =>
+          Assert.Throws<ArgumentException>(() => calc.TotalAfterDiscount(-1m, 0m));
+
+      [Fact]
+      public void RoundsToTwoDecimals() =>
+          Assert.Equal(9.05m, calc.TotalAfterDiscount(10.05m, 10m));
+
+      [Fact]
+      public void RejectsMissingSubtotal() =>
+          Assert.Throws<ArgumentException>(() => calc.TotalAfterDiscount(null, 0m));
+  }
+
+Run locally:
+  dotnet test        (runs the 7 tests)
+  dotnet run --project OrderApp
+
+.github/workflows/ci-cd.yml (C# version)
+  name: C# CI/CD Demo
+  on:
+    push:
+    pull_request:
+    workflow_dispatch:
+  permissions:
+    contents: read
+  jobs:
+    build-test-deliver:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: actions/setup-dotnet@v4
+          with:
+            dotnet-version: '8.0.x'
+        - run: dotnet restore
+        - run: dotnet build --no-restore -c Release
+        - run: dotnet test --no-build -c Release --logger "trx" --results-directory TestResults
+        - run: dotnet publish OrderApp -c Release -o publish
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with:
+            name: csharp-ci-cd-demo-results
+            path: |
+              TestResults/
+              publish/
+            if-no-files-found: warn
+            retention-days: 7
+
+IMPORTANT: I wrote this C# version from knowledge and did not run it here (no
+.NET SDK in my workspace). Run "dotnet test" once on your laptop before you
+present it. If you want, send me the results and I will fix any error.
+
+Note: the Java demo is the main one. Present Java, and say "the same pipeline in
+C# only changes the setup step and the build commands". That sentence shows you
+understand CI/CD is language-independent.
+
+
+11. CHEAT SHEET - MEMORIZE
+--------------------------
+CI  = build + test automatically on every change.
+CD  = package (delivery) or release (deployment) what passed.
+Pipeline = ordered automatic steps.  Runner = temporary machine.
+Workflow = the YAML file.  Trigger = "on:".  Artifact = downloadable output.
+mvn clean verify = clean -> compile -> test -> package (+ verify).
+Test fails -> pipeline red -> no package.
+if: always() = upload the report even when it fails.
+This demo = Continuous DELIVERY (JAR), not deployment.
+GitHub Actions = hosted, YAML.  Jenkins = self-hosted.  Allure = nicer reports.
+Java: Maven + JUnit + BigDecimal.   C#: dotnet + xUnit + decimal.
+
+Do not say "it passed on GitHub" until you have actually seen the green run.

@@ -1,0 +1,38 @@
+name: Java CI/CD Demo
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-deliver:
+    name: Build, test, and deliver Java app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17 and cache Maven dependencies
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Compile, test, and package
+        run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Upload test report and Java artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: java-ci-cd-demo-results
+          path: |
+            target/surefire-reports/
+            target/java-ci-cd-demo-1.0.0.jar
+          if-no-files-found: warn
+          retention-days: 7
